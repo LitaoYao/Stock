@@ -11,6 +11,7 @@ class StockMonitor:
 	def __init__(self, config_file='config.ini'):
 		self.config_file = config_file
 		self.stock_codes = []
+		self.index_stock_codes = []
 		self.refresh_interval = 5  # 默认5秒刷新
 		self.load_config()
 
@@ -30,6 +31,10 @@ class StockMonitor:
 		if 'Stocks' in config:
 			self.stock_codes = [code.strip() for code in config['Stocks'].get('codes', '').split(',') if code.strip()]
 
+		# 读取指数代码
+		if 'IndexStocks' in config:
+			self.index_stock_codes = [code.strip() for code in config['IndexStocks'].get('codes', '').split(',') if code.strip()]
+
 		# 读取刷新间隔
 		if 'Settings' in config:
 			self.refresh_interval = config['Settings'].getint('refresh_interval', 5)
@@ -41,7 +46,13 @@ class StockMonitor:
 		config['Stocks'] = {
 			'# 在此处添加A股代码，用逗号分隔': '',
 			'# 沪市股票以sh前缀，深市股票以sz前缀': '',
-			'codes': 'sh601318,sz000001,sh600036,sz000858'
+			'codes': 'sh600000, sz000001'
+		}
+
+		config['IndexStocks'] = {
+			'# 在此处添加A股代码，用逗号分隔': '',
+			'# 沪市股票以sh前缀，深市股票以sz前缀': '',
+			'codes': 'sh000001, sz399001'
 		}
 
 		config['Settings'] = {
@@ -204,11 +215,20 @@ class StockMonitor:
 					'low': '最低',
 				}
 				self.display_one_line(str_dict)
+				index_stock_info_list = []
+				for code in self.index_stock_codes:
+					stock_info = self.get_stock_price_optimized(code)
+					index_stock_info_list.append(stock_info)
 				stock_info_list = []
 				for code in self.stock_codes:
 					stock_info = self.get_stock_price_optimized(code)
 					stock_info_list.append(stock_info)
-				for stock_info in sorted(stock_info_list, key=lambda stock_info: (stock_info['current'] - stock_info['close']) / stock_info['close'], reverse=True):
+				# 显示指数股票信息
+				for stock_info in index_stock_info_list:
+					self.display_stock_info(stock_info, code)
+				# 显示股票信息
+				stock_info_list = sorted(stock_info_list, key=lambda stock_info: (stock_info['current'] - stock_info['close']) / stock_info['close'], reverse=True)
+				for stock_info in stock_info_list:
 					self.display_stock_info(stock_info, code)
 				print('最后刷新时间: ', datetime.datetime.now())
 				sys.stdout.flush()
