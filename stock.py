@@ -90,6 +90,7 @@ class StockMonitor:
 				# 重要：以下字段索引需要根据实际API返回的数据顺序进行调整！
 				# 这里是一个猜测的顺序，你必须根据实际情况校验和修改索引号
 				stock_info = {
+					'code': stock_code,           # 股票代码
 					'name': fields[1],            # 股票名称
 					'current': float(fields[3]),  # 当前价格
 					'close': float(fields[4]),    # 昨日收盘
@@ -146,7 +147,6 @@ class StockMonitor:
 			return str(text)
 
 	def display_one_line(self, str_dict):
-
 		# 计算各字段所需的显示宽度（根据你的表格布局调整）
 		code_width = 10    # 代码列宽
 		name_width = 12    # 名称列宽
@@ -164,7 +164,7 @@ class StockMonitor:
 		# 打印对齐后的行
 		print(f"{aligned_code} {aligned_name} {aligned_price} {aligned_change} {aligned_high} {aligned_low}")
 
-	def display_stock_info(self, stock_info, stock_code):
+	def display_stock_info(self, stock_info):
 		"""显示股票信息"""
 		if stock_info:
 			change = stock_info['current'] - stock_info['close']
@@ -174,8 +174,8 @@ class StockMonitor:
 			reset_code = "\033[0m"
 			symbol = "↑" if change >= 0 else "↓"
 			# 准备要显示的字段
+			code_display = stock_info['code']                # 股票代码
 			name_display = stock_info['name']                # 股票名称
-			code_display = stock_code                        # 股票代码
 			price_display = f"{stock_info['current']:>.2f}"  # 当前价
 			change_display = f"{change:>+7.2f}"              # 涨跌额
 			percent_display = f"({change_percent:>+6.2f}%)"  # 涨跌幅
@@ -194,7 +194,7 @@ class StockMonitor:
 			self.display_one_line(str_dict)
 		else:
 			# 处理数据为空的情况，也保持对齐
-			print(f"{stock_code:>10} {'N/A':>12} {'N/A':>10} {'N/A':>18} {'N/A':>10} {'N/A':>10}")
+			print(f"{'N/A':>10} {'N/A':>12} {'N/A':>10} {'N/A':>18} {'N/A':>10} {'N/A':>10}")
 
 	def run(self):
 		"""主运行循环"""
@@ -225,11 +225,11 @@ class StockMonitor:
 					stock_info_list.append(stock_info)
 				# 显示指数股票信息
 				for stock_info in index_stock_info_list:
-					self.display_stock_info(stock_info, code)
+					self.display_stock_info(stock_info)
 				# 显示股票信息
 				stock_info_list = sorted(stock_info_list, key=lambda stock_info: (stock_info['current'] - stock_info['close']) / stock_info['close'], reverse=True)
 				for stock_info in stock_info_list:
-					self.display_stock_info(stock_info, code)
+					self.display_stock_info(stock_info)
 				print('最后刷新时间: ', datetime.datetime.now())
 				sys.stdout.flush()
 				time.sleep(self.refresh_interval)
