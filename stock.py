@@ -90,13 +90,15 @@ class StockMonitor:
 				# 重要：以下字段索引需要根据实际API返回的数据顺序进行调整！
 				# 这里是一个猜测的顺序，你必须根据实际情况校验和修改索引号
 				stock_info = {
-					'code': stock_code,           # 股票代码
-					'name': fields[1],            # 股票名称
-					'current': float(fields[3]),  # 当前价格
-					'close': float(fields[4]),    # 昨日收盘
-					'open': float(fields[5]),     # 今日开盘
-					'high': float(fields[33]),    # 最高
-					'low': float(fields[34])      # 最低
+					'code': stock_code,                   # 股票代码
+					'name': fields[1],                    # 股票名称
+					'current': float(fields[3]),          # 当前价格
+					'close': float(fields[4]),            # 昨日收盘
+					'open': float(fields[5]),             # 今日开盘
+					'change': float(fields[31]),          # 涨跌额
+					'change_percent': float(fields[32]),  # 涨跌幅
+					'high': float(fields[33]),            # 最高
+					'low': float(fields[34])              # 最低
 				}
 				return stock_info
 			else:
@@ -167,18 +169,16 @@ class StockMonitor:
 	def display_stock_info(self, stock_info):
 		"""显示股票信息"""
 		if stock_info:
-			change = stock_info['current'] - stock_info['close']
-			change_percent = (change / stock_info['close']) * 100
 			# 确定颜色和涨跌符号（Unix终端适用）
-			color_code = "\033[32m" if change < 0 else "\033[31m"
+			color_code = "\033[32m" if stock_info['change'] < 0 else "\033[31m"
 			reset_code = "\033[0m"
-			symbol = "↑" if change >= 0 else "↓"
+			symbol = "↑" if stock_info['change'] >= 0 else "↓"
 			# 准备要显示的字段
 			code_display = stock_info['code']                # 股票代码
 			name_display = stock_info['name']                # 股票名称
 			price_display = f"{stock_info['current']:>.2f}"  # 当前价
-			change_display = f"{change:>+7.2f}"              # 涨跌额
-			percent_display = f"({change_percent:>+6.2f}%)"  # 涨跌幅
+			change_display = f"{stock_info['change']:>+7.2f}"              # 涨跌额
+			percent_display = f"({stock_info['change_percent']:>+6.2f}%)"  # 涨跌幅
 			high_display = f"{stock_info['high']:>7.2f}"     # 最高
 			low_display = f"{stock_info['low']:>7.2f}"       # 最低
 			# 涨跌额和涨跌幅通常一起显示，可能需要特殊处理颜色和符号
