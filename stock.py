@@ -1,6 +1,7 @@
 # -*- encoding=utf-8 -*-
 import configparser
 import datetime
+import json
 import os
 import requests
 import sys
@@ -10,37 +11,36 @@ import unicodedata
 class StockMonitor:
 	def __init__(self, config_file='config.ini'):
 		self.config_file = config_file
-		self.stock_codes = []
 		self.index_stock_codes = []
+		self.owner_stock_codes = []
+		self.focus_stock_codes = []
 		self.refresh_interval = 5  # 默认5秒刷新
 		self.load_config()
 
 	def load_config(self):
-		"""从配置文件加载股票代码和设置"""
+		'''从配置文件加载股票代码和设置'''
 		config = configparser.ConfigParser()
 
 		# 如果配置文件不存在，创建默认配置
 		if not os.path.exists(self.config_file):
 			self.create_default_config()
-			print(f"已创建默认配置文件 {self.config_file}，请编辑后重新运行程序")
+			print(f'已创建默认配置文件 {self.config_file}，请编辑后重新运行程序')
 			exit(0)
 
 		config.read(self.config_file, encoding='utf-8')
 
 		# 读取股票代码
 		if 'Stocks' in config:
-			self.stock_codes = [code.strip() for code in config['Stocks'].get('codes', '').split(',') if code.strip()]
-
-		# 读取指数代码
-		if 'IndexStocks' in config:
-			self.index_stock_codes = [code.strip() for code in config['IndexStocks'].get('codes', '').split(',') if code.strip()]
+			self.index_stock_codes = [code.strip() for code in config['Stocks'].get('index_codes', '').split(',') if code.strip()]
+			self.owner_stock_codes = [code.strip() for code in config['Stocks'].get('owner_codes', '').split(',') if code.strip()]
+			self.focus_stock_codes = [code.strip() for code in config['Stocks'].get('focus_codes', '').split(',') if code.strip()]
 
 		# 读取刷新间隔
 		if 'Settings' in config:
 			self.refresh_interval = config['Settings'].getint('refresh_interval', 5)
 
 	def create_default_config(self):
-		"""创建默认配置文件"""
+		'''创建默认配置文件'''
 		config = configparser.ConfigParser()
 
 		config['Stocks'] = {
@@ -63,14 +63,15 @@ class StockMonitor:
 		with open(self.config_file, 'w', encoding='utf-8') as f:
 			config.write(f)
 
-	def get_stock_price_optimized(self, stock_code):
-		"""
-		从腾讯API获取股票实时价格（优化版，只获取指定字段）
+	def get_stock_price_hk(self, stock_code):
+		'''
+		从腾讯API获取股票实时价格（港股实时数据，只获取指定字段）
 		返回字典包含: name, current, open, close, high, low
-		"""
+		'''
 		try:
 			# 使用一个更简洁的API接口（示例，实际需替换为腾讯可用且稳定的接口）
-			url = f"http://qt.gtimg.cn/q={stock_code}"
+			url = f'https://web.ifzq.gtimg.cn/appstock/app/fqkline/get?_var=kline_dayhfq&param={stock_code},day,,,0,hfq'
+			#  url = f'http://qt.gtimg.cn/q={stock_code}'
 			headers = {
 				'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
 			}
@@ -81,10 +82,68 @@ class StockMonitor:
 
 			if response.status_code == 200:
 				# 示例返回数据格式（实际需根据接口响应调整解析逻辑）:
-				# v_sh601318="1~中国平安~601318~27.85~27.80~27.82~278909~155197~~6717.72";
+				# v_sh601318='1~中国平安~601318~27.85~27.80~27.82~278909~155197~~6717.72';
 				# 数据字段可能以波浪线(~)分隔，依次可能是：未知、名称、代码、当前价、开盘、昨收、最高、最低、成交量(手)、成交额(万)...
 				raw_data = response.text
-				data_str = raw_data.split('="')[1].rstrip('";')
+				data_str = raw_data.split('=', 1)[1]
+				data = json.loads(data_str)
+				fields = data['data'][stock_code]['qt'][stock_code]
+				#  fields = data_str.split('~')
+
+				# 重要：以下字段索引需要根据实际API返回的数据顺序进行调整！
+				# 这里是一个猜测的顺序，你必须根据实际情况校验和修改索引号
+				stock_info = {
+					'code': stock_code,                   # 股票代码
+					'name': fields[1],                    # 股票名称
+					'current': float(fields[3]),          # 当前价格
+					'close': float(fields[4]),            # 昨日收盘
+					'open': float(fields[5]),             # 今日开盘
+					'change': float(fields[31]),          # 涨跌额
+					'change_percent': float(fields[32]),  # 涨跌幅
+					'high': float(fields[33]),            # 最高
+					'low': float(fields[34])              # 最低
+				}
+				return stock_info
+			else:
+				print(f'请求失败，状态码: {response.status_code}')
+				return None
+		except requests.exceptions.Timeout:
+			print(f'获取 {stock_code} 数据超时，请检查网络或稍后重试')
+			return None
+		except requests.exceptions.RequestException as e:
+			print(f'获取 {stock_code} 数据时发生网络错误: {e}')
+			return None
+		except (IndexError, ValueError, KeyError) as e:
+			print(f'解析 {stock_code} 返回数据时发生错误: {e}。原始数据: {raw_data}')
+			return None
+		except Exception as e:
+			print(f'获取 {stock_code} 数据时发生未知错误: {e}')
+			return None
+
+	def get_stock_price(self, stock_code):
+		'''
+		从腾讯API获取股票实时价格（优化版，只获取指定字段）
+		返回字典包含: name, current, open, close, high, low
+		'''
+		if stock_code.startswith('hk'):
+			return self.get_stock_price_hk(stock_code)
+		try:
+			# 使用一个更简洁的API接口（示例，实际需替换为腾讯可用且稳定的接口）
+			url = f'http://qt.gtimg.cn/q={stock_code}'
+			headers = {
+				'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+			}
+
+			# 设置较短的超时时间，避免长时间等待
+			response = requests.get(url, headers=headers, timeout=5)
+			response.encoding = 'gbk'  # 部分接口可能使用非UTF-8编码，如gbk
+
+			if response.status_code == 200:
+				# 示例返回数据格式（实际需根据接口响应调整解析逻辑）:
+				# v_sh601318='1~中国平安~601318~27.85~27.80~27.82~278909~155197~~6717.72';
+				# 数据字段可能以波浪线(~)分隔，依次可能是：未知、名称、代码、当前价、开盘、昨收、最高、最低、成交量(手)、成交额(万)...
+				raw_data = response.text
+				data_str = raw_data.split('=', 1)[1].rstrip(';')
 				fields = data_str.split('~')
 
 				# 重要：以下字段索引需要根据实际API返回的数据顺序进行调整！
@@ -102,26 +161,26 @@ class StockMonitor:
 				}
 				return stock_info
 			else:
-				print(f"请求失败，状态码: {response.status_code}")
+				print(f'请求失败，状态码: {response.status_code}')
 				return None
 		except requests.exceptions.Timeout:
-			print(f"获取 {stock_code} 数据超时，请检查网络或稍后重试")
+			print(f'获取 {stock_code} 数据超时，请检查网络或稍后重试')
 			return None
 		except requests.exceptions.RequestException as e:
-			print(f"获取 {stock_code} 数据时发生网络错误: {e}")
+			print(f'获取 {stock_code} 数据时发生网络错误: {e}')
 			return None
 		except (IndexError, ValueError, KeyError) as e:
-			print(f"解析 {stock_code} 返回数据时发生错误: {e}。原始数据: {raw_data}")
+			print(f'解析 {stock_code} 返回数据时发生错误: {e}。原始数据: {raw_data}')
 			return None
 		except Exception as e:
-			print(f"获取 {stock_code} 数据时发生未知错误: {e}")
+			print(f'获取 {stock_code} 数据时发生未知错误: {e}')
 			return None
 
 	def get_display_width(self, s):
-		"""
+		'''
 		计算字符串的显示宽度（考虑中英文字符宽度差异）
 		全角字符（如汉字）宽度为2，半角字符（如英文字母、数字）宽度为1
-		"""
+		'''
 		width = 0
 		for char in s:
 			# 判断字符宽度：'F'（全角）、'W'（宽）、'Na'（窄）等类别
@@ -164,25 +223,25 @@ class StockMonitor:
 		aligned_high = self.align_text(str_dict['high'], high_width, 'right')
 		aligned_low = self.align_text(str_dict['low'], low_width, 'right')
 		# 打印对齐后的行
-		print(f"{aligned_code} {aligned_name} {aligned_price} {aligned_change} {aligned_high} {aligned_low}")
+		print(f'{aligned_code} {aligned_name} {aligned_price} {aligned_change} {aligned_high} {aligned_low}')
 
 	def display_stock_info(self, stock_info):
-		"""显示股票信息"""
+		'''显示股票信息'''
 		if stock_info:
 			# 确定颜色和涨跌符号（Unix终端适用）
-			color_code = "\033[32m" if stock_info['change'] < 0 else "\033[31m"
-			reset_code = "\033[0m"
-			symbol = "↑" if stock_info['change'] >= 0 else "↓"
+			color_code = '\033[32m' if stock_info['change'] < 0 else '\033[31m'
+			reset_code = '\033[0m'
+			symbol = '↑' if stock_info['change'] >= 0 else '↓'
 			# 准备要显示的字段
 			code_display = stock_info['code']                # 股票代码
 			name_display = stock_info['name']                # 股票名称
-			price_display = f"{stock_info['current']:>.2f}"  # 当前价
-			change_display = f"{stock_info['change']:>+7.2f}"              # 涨跌额
-			percent_display = f"({stock_info['change_percent']:>+6.2f}%)"  # 涨跌幅
-			high_display = f"{stock_info['high']:>7.2f}"     # 最高
-			low_display = f"{stock_info['low']:>7.2f}"       # 最低
+			price_display = f'{stock_info['current']:>.2f}'  # 当前价
+			change_display = f'{stock_info['change']:>+7.2f}'              # 涨跌额
+			percent_display = f'({stock_info['change_percent']:>+6.2f}%)'  # 涨跌幅
+			high_display = f'{stock_info['high']:>7.2f}'     # 最高
+			low_display = f'{stock_info['low']:>7.2f}'       # 最低
 			# 涨跌额和涨跌幅通常一起显示，可能需要特殊处理颜色和符号
-			change_str = f"{color_code}{change_display} {percent_display}{symbol}{reset_code}"
+			change_str = f'{color_code}{change_display} {percent_display}{symbol}{reset_code}'
 			str_dict = {
 				'code': code_display,
 				'name': name_display,
@@ -194,15 +253,12 @@ class StockMonitor:
 			self.display_one_line(str_dict)
 		else:
 			# 处理数据为空的情况，也保持对齐
-			print(f"{'N/A':>10} {'N/A':>12} {'N/A':>10} {'N/A':>18} {'N/A':>10} {'N/A':>10}")
+			print(f'{'N/A':>10} {'N/A':>12} {'N/A':>10} {'N/A':>18} {'N/A':>10} {'N/A':>10}')
 
 	def run(self):
-		"""主运行循环"""
-		if not self.stock_codes:
-			print("配置文件中未找到有效的股票代码")
-			return
+		'''主运行循环'''
 		try:
-			print("\033[2J")
+			print('\033[2J')
 			while True:
 				sys.stdout.write('\033[;H')
 				sys.stdout.flush()
@@ -217,26 +273,37 @@ class StockMonitor:
 				self.display_one_line(str_dict)
 				index_stock_info_list = []
 				for code in self.index_stock_codes:
-					stock_info = self.get_stock_price_optimized(code)
+					stock_info = self.get_stock_price(code)
 					index_stock_info_list.append(stock_info)
-				stock_info_list = []
-				for code in self.stock_codes:
-					stock_info = self.get_stock_price_optimized(code)
-					stock_info_list.append(stock_info)
+				owner_stock_info_list = []
+				for code in self.owner_stock_codes:
+					stock_info = self.get_stock_price(code)
+					owner_stock_info_list.append(stock_info)
+				focus_stock_info_list = []
+				for code in self.focus_stock_codes:
+					stock_info = self.get_stock_price(code)
+					focus_stock_info_list.append(stock_info)
 				# 显示指数股票信息
+				print(f'{'-- 指数 --':^80}')
 				for stock_info in index_stock_info_list:
 					self.display_stock_info(stock_info)
-				# 显示股票信息
-				stock_info_list = sorted(stock_info_list, key=lambda stock_info: (stock_info['current'] - stock_info['close']) / stock_info['close'], reverse=True)
-				for stock_info in stock_info_list:
+				# 显示持仓股票信息
+				print(f'{'-- 持仓 --':^80}')
+				owner_stock_info_list = sorted(owner_stock_info_list, key=lambda stock_info: stock_info['change_percent'], reverse=True)
+				for stock_info in owner_stock_info_list:
+					self.display_stock_info(stock_info)
+				# 显示关注股票信息
+				print(f'{'-- 关注 --':^80}')
+				focus_stock_info_list = sorted(focus_stock_info_list, key=lambda stock_info: stock_info['change_percent'], reverse=True)
+				for stock_info in focus_stock_info_list:
 					self.display_stock_info(stock_info)
 				print('最后刷新时间: ', datetime.datetime.now())
 				sys.stdout.flush()
 				time.sleep(self.refresh_interval)
 		except KeyboardInterrupt:
-			print("\n程序已退出")
+			print('\n程序已退出')
 
-if __name__ == "__main__":
+if __name__ == '__main__':
 	monitor = StockMonitor()
 	monitor.run()
 
