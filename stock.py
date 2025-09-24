@@ -7,6 +7,7 @@ import requests
 import sys
 import time
 import unicodedata
+import concurrent.futures
 
 class StockMonitor:
 	def __init__(self, config_file='config.ini'):
@@ -120,7 +121,7 @@ class StockMonitor:
 			print(f'获取 {stock_code} 数据时发生未知错误: {e}')
 			return None
 
-	def get_stock_price(self, stock_code):
+	def get_stock_info(self, stock_code):
 		'''
 		从腾讯API获取股票实时价格（优化版，只获取指定字段）
 		返回字典包含: name, current, open, close, high, low
@@ -255,6 +256,24 @@ class StockMonitor:
 			# 处理数据为空的情况，也保持对齐
 			print(f'{'N/A':>10} {'N/A':>12} {'N/A':>10} {'N/A':>18} {'N/A':>10} {'N/A':>10}')
 
+	def get_stock_info_list_parallel(self, stock_codes):
+		'''并行获取多个股票数据'''
+		stock_info_list = [None] * len(stock_codes)
+		# 使用线程池并行获取数据
+		with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+			# 提交所有任务
+			future_to_stock_code = {executor.submit(self.get_stock_info, stock_code): stock_code for stock_code in stock_codes}
+		# 收集结果
+		for future in concurrent.futures.as_completed(future_to_stock_code):
+			stock_code = future_to_stock_code[future]
+			try:
+				stock_info = future.result()
+				index = stock_codes.index(stock_code, 0, len(stock_codes))
+				stock_info_list[index] = stock_info
+			except Exception as e:
+				print(f"获取 {stock_code} 数据时发生错误: {e}")
+		return stock_info_list
+
 	def run(self):
 		'''主运行循环'''
 		try:
@@ -271,18 +290,12 @@ class StockMonitor:
 					'low': '最低',
 				}
 				self.display_one_line(str_dict)
-				index_stock_info_list = []
-				for code in self.index_stock_codes:
-					stock_info = self.get_stock_price(code)
-					index_stock_info_list.append(stock_info)
-				owner_stock_info_list = []
-				for code in self.owner_stock_codes:
-					stock_info = self.get_stock_price(code)
-					owner_stock_info_list.append(stock_info)
-				focus_stock_info_list = []
-				for code in self.focus_stock_codes:
-					stock_info = self.get_stock_price(code)
-					focus_stock_info_list.append(stock_info)
+				# 获取指数股票信息
+				index_stock_info_list = self.get_stock_info_list_parallel(self.index_stock_codes)
+				# 获取持仓股票信息
+				owner_stock_info_list = self.get_stock_info_list_parallel(self.owner_stock_codes)
+				# 获取关注股票信息
+				focus_stock_info_list = self.get_stock_info_list_parallel(self.focus_stock_codes)
 				# 显示指数股票信息
 				print(f'{'-- 指数 --':^80}')
 				for stock_info in index_stock_info_list:
